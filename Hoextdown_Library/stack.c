@@ -1,66 +1,70 @@
-#include <stack.h>
+#include "stack.h"
 
-#include <buffer.h>
-
-#include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
-void
-hoedown_stack_init(hoedown_stack *st, size_t initial_size)
+int
+hoedown_stack_new(hoedown_stack *st, size_t initial_size)
 {
-	assert(st);
-
 	st->item = NULL;
-	st->size = st->asize = 0;
+	st->size = 0;
+	st->asize = 0;
 
 	if (!initial_size)
 		initial_size = 8;
 
-	hoedown_stack_grow(st, initial_size);
+	return hoedown_stack_grow(st, initial_size);
 }
 
 void
-hoedown_stack_uninit(hoedown_stack *st)
+hoedown_stack_free(hoedown_stack *st)
 {
-	assert(st);
-
-	free(st->item);
-}
-
-void
-hoedown_stack_grow(hoedown_stack *st, size_t neosz)
-{
-	assert(st);
-
-	if (st->asize >= neosz)
+	if (!st)
 		return;
 
-	st->item = hoedown_realloc(st->item, neosz * sizeof(void *));
-	memset(st->item + st->asize, 0x0, (neosz - st->asize) * sizeof(void *));
+	free(st->item);
 
-	st->asize = neosz;
-
-	if (st->size > neosz)
-		st->size = neosz;
+	st->item = NULL;
+	st->size = 0;
+	st->asize = 0;
 }
 
-void
+int
+hoedown_stack_grow(hoedown_stack *st, size_t new_size)
+{
+	void **new_st;
+
+	if (st->asize >= new_size)
+		return 0;
+
+	new_st = realloc(st->item, new_size * sizeof(void *));
+	if (new_st == NULL)
+		return -1;
+
+	memset(new_st + st->asize, 0x0,
+		(new_size - st->asize) * sizeof(void *));
+
+	st->item = new_st;
+	st->asize = new_size;
+
+	if (st->size > new_size)
+		st->size = new_size;
+
+	return 0;
+}
+
+int
 hoedown_stack_push(hoedown_stack *st, void *item)
 {
-	assert(st);
-
-	if (st->size >= st->asize)
-		hoedown_stack_grow(st, st->size * 2);
+	if (hoedown_stack_grow(st, st->size * 2) < 0)
+		return -1;
 
 	st->item[st->size++] = item;
+	return 0;
 }
 
 void *
 hoedown_stack_pop(hoedown_stack *st)
 {
-	assert(st);
-
 	if (!st->size)
 		return NULL;
 
@@ -68,10 +72,8 @@ hoedown_stack_pop(hoedown_stack *st)
 }
 
 void *
-hoedown_stack_top(const hoedown_stack *st)
+hoedown_stack_top(hoedown_stack *st)
 {
-	assert(st);
-
 	if (!st->size)
 		return NULL;
 

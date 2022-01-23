@@ -42,9 +42,6 @@
     <ClCompile Include="buffer.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="context_test.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="document.c">
       <Filter>Source Files</Filter>
     </ClCompile>

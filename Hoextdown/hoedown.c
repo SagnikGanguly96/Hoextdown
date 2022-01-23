@@ -1,34 +1,49 @@
-#include <document.h>
-#include <html.h>
-#include <context_test.h>
-#include<common.h>
-#include <time.h>
+#include "document.h"
+#include "html.h"
 
+#include "common.h"
+//#include <time.h>
 
-/* FEATURES INFO / DEFAULTS */
+/* NULL RENDERER */
 
 enum renderer_type {
 	RENDERER_HTML,
 	RENDERER_HTML_TOC,
-	RENDERER_CONTEXT_TEST
+	RENDERER_NULL,
 };
+
+hoedown_renderer*
+null_renderer_new() {
+	hoedown_renderer* rend = malloc(sizeof(hoedown_renderer));
+	if(rend)
+		memset(rend, 0x00, sizeof(hoedown_renderer));
+	return rend;
+}
+
+void
+null_renderer_free(hoedown_renderer* rend) {
+	free(rend);
+}
+
+
+/* FEATURES INFO / DEFAULTS */
 
 struct extension_category_info {
 	unsigned int flags;
-	const char *option_name;
-	const char *label;
+	const char* option_name;
+	const char* label;
 };
 
 struct extension_info {
 	unsigned int flag;
-	const char *option_name;
-	const char *description;
+	const char* option_name;
+	const char* description;
 };
 
 struct html_flag_info {
 	unsigned int flag;
-	const char *option_name;
-	const char *description;
+	const char* option_name;
+	const char* description;
 };
 
 static struct extension_category_info categories_info[] = {
@@ -40,48 +55,42 @@ static struct extension_category_info categories_info[] = {
 
 static struct extension_info extensions_info[] = {
 	{HOEDOWN_EXT_TABLES, "tables", "Parse PHP-Markdown style tables."},
-	{HOEDOWN_EXT_MULTILINE_TABLES, "multiline-tables", "Parse continuation-style multiline tables (only has an effect if --tables is also used)."},
 	{HOEDOWN_EXT_FENCED_CODE, "fenced-code", "Parse fenced code blocks."},
 	{HOEDOWN_EXT_FOOTNOTES, "footnotes", "Parse footnotes."},
 
-	{HOEDOWN_EXT_AUTOLINK, "autolink", "Automatically turn safe URLs into links."},
+	{HOEDOWN_EXT_AUTOLINK, "autolink", "Automatically turn URLs into links."},
 	{HOEDOWN_EXT_STRIKETHROUGH, "strikethrough", "Parse ~~stikethrough~~ spans."},
 	{HOEDOWN_EXT_UNDERLINE, "underline", "Parse _underline_ instead of emphasis."},
 	{HOEDOWN_EXT_HIGHLIGHT, "highlight", "Parse ==highlight== spans."},
 	{HOEDOWN_EXT_QUOTE, "quote", "Render \"quotes\" as <q>quotes</q>."},
 	{HOEDOWN_EXT_SUPERSCRIPT, "superscript", "Parse super^script."},
-	{HOEDOWN_EXT_MATH, "math", "Parse TeX $$math$$ syntax, Kramdown style."},
 
+	{HOEDOWN_EXT_LAX_SPACING, "lax-spacing", "Allow HTML blocks on the same line as text."},
 	{HOEDOWN_EXT_NO_INTRA_EMPHASIS, "disable-intra-emphasis", "Disable emphasis_between_words."},
 	{HOEDOWN_EXT_SPACE_HEADERS, "space-headers", "Require a space after '#' in headers."},
-	{HOEDOWN_EXT_MATH_EXPLICIT, "math-explicit", "Instead of guessing by context, parse $inline math$ and $$always block math$$ (requires --math)."},
-	{HOEDOWN_EXT_HTML5_BLOCKS, "html5-blocks", "Interpret HTML5 blocks, such as <section> as block elements (don't consider as text)."},
-	{HOEDOWN_EXT_NO_INTRA_UNDERLINE_EMPHASIS, "disable-intra-underline-emphasis", "Disable emphasis_between_words, but only for underscores."},
 
 	{HOEDOWN_EXT_DISABLE_INDENTED_CODE, "disable-indented-code", "Don't parse indented code blocks."},
 
 	{HOEDOWN_EXT_SPECIAL_ATTRIBUTE, "special-attribute", "Parse special attributes."},
-	{HOEDOWN_EXT_SCRIPT_TAGS, "script-tags", "Parse script tags <?..?>."},
-	{HOEDOWN_EXT_META_BLOCK, "meta-block", "Parse meta block <!--*..*-->."},
-
-	{HOEDOWN_EXT_DEFINITION_LISTS, "definition-lists", "Parse definition lists."},
-	{HOEDOWN_EXT_BLOCKQUOTE_EMPTY_LINE, "blockquote-empty-line", "Parse blockquote is done empty line."},
 };
 
 static struct html_flag_info html_flags_info[] = {
 	{HOEDOWN_HTML_SKIP_HTML, "skip-html", "Strip all HTML tags."},
-	{HOEDOWN_HTML_ESCAPE, "escape", "Escape all HTML."},
+	{HOEDOWN_HTML_SKIP_STYLE, "skip-style", "Strip <style> tags."},
+	{HOEDOWN_HTML_SKIP_IMAGES, "skip-images", "Don't render images."},
+	{HOEDOWN_HTML_SKIP_LINKS, "skip-links", "Don't render links."},
+	{HOEDOWN_HTML_EXPAND_TABS, "expand-tabs", "Expand tabs to spaces."},
+	{HOEDOWN_HTML_SAFELINK, "safelink", "Only allow links to safe protocols."},
+	{HOEDOWN_HTML_TOC, "toc", "Produce links to the Table of Contents."},
 	{HOEDOWN_HTML_HARD_WRAP, "hard-wrap", "Render each linebreak as <br>."},
 	{HOEDOWN_HTML_USE_XHTML, "xhtml", "Render XHTML."},
+	{HOEDOWN_HTML_ESCAPE, "escape", "Escape all HTML."},
 	{HOEDOWN_HTML_USE_TASK_LIST, "task", "Render task lists."},
 	{HOEDOWN_HTML_LINE_CONTINUE, "line-continue", "Render line continue."},
-	{HOEDOWN_HTML_HEADER_ID, "header-id", "Render header id."},
-	{HOEDOWN_HTML_FENCED_CODE_SCRIPT, "fenced-script", "Render fenced code blocks as script tag."},
-	{HOEDOWN_HTML_USE_RADIO_LIST, "radios", "Render radio lists."},
 };
 
-static const char *category_prefix = "all-";
-static const char *negative_prefix = "no-";
+static const char* category_prefix = "all-";
+static const char* negative_prefix = "no-";
 
 #define DEF_IUNIT 1024
 #define DEF_OUNIT 64
@@ -91,25 +100,21 @@ static const char *negative_prefix = "no-";
 /* PRINT HELP */
 
 void
-print_help(const char *basename)
-{
-	size_t i;
-	size_t e;
-
+print_help(const char* basename) {
 	/* usage */
 	printf("Usage: %s [OPTION]... [FILE]\n\n", basename);
 
 	/* description */
 	printf("Process the Markdown in FILE (or standard input) and render it to standard output, using the Hoedown library. "
-	       "Parsing and rendering can be customized through the options below. The default is to parse pure markdown and output HTML.\n\n");
+		   "Parsing and rendering can be customized through the options below. The default is to parse pure markdown and output HTML.\n\n");
 
 	/* main options */
 	printf("Main options:\n");
 	print_option('n', "max-nesting=N", "Maximum level of block nesting parsed. Default is " str(DEF_MAX_NESTING) ".");
-	print_option('t', "toc-level=N", "Maximum level for headers included in the TOC. Zero disables TOC (the default).");
-	print_option('a', "attr-activation=C", "Character prefix to activate special attributes if the extension is turned on. Cannot be @. EX: With '-a=?', '# h {? .class}' becomes '<h1 class=\"class\">h</h1>'.");
-	print_option(  0, "html", "Render (X)HTML. The default.");
-	print_option(  0, "html-toc", "Render the Table of Contents in (X)HTML.");
+	print_option('t', "toc-level=N", "Maximum level for headers included in the TOC. Implies '--toc'.");
+	print_option(0, "html", "Render (X)HTML. The default.");
+	print_option(0, "html-toc", "Render the Table of Contents in (X)HTML.");
+	print_option(0, "null", "Use a special \"null\" renderer that has no callbacks.");
 	print_option('T', "time", "Show time spent in rendering.");
 	print_option('i', "input-unit=N", "Reading block size. Default is " str(DEF_IUNIT) ".");
 	print_option('o', "output-unit=N", "Writing block size. Default is " str(DEF_OUNIT) ".");
@@ -118,13 +123,15 @@ print_help(const char *basename)
 	printf("\n");
 
 	/* extensions */
-	for (i = 0; i < count_of(categories_info); i++) {
-		struct extension_category_info *category = categories_info+i;
+	size_t i;
+	size_t e;
+	for(i = 0; i < count_of(categories_info); i++) {
+		struct extension_category_info* category = categories_info + i;
 		printf("%s (--%s%s):\n", category->label, category_prefix, category->option_name);
-		for (e = 0; e < count_of(extensions_info); e++) {
-			struct extension_info *extension = extensions_info+e;
-			if (extension->flag & category->flags) {
-				print_option(  0, extension->option_name, extension->description);
+		for(e = 0; e < count_of(extensions_info); e++) {
+			struct extension_info* extension = extensions_info + e;
+			if(extension->flag & category->flags) {
+				print_option(0, extension->option_name, extension->description);
 			}
 		}
 		printf("\n");
@@ -132,422 +139,377 @@ print_help(const char *basename)
 
 	/* html-specific */
 	printf("HTML-specific options:\n");
-	for (i = 0; i < count_of(html_flags_info); i++) {
-		struct html_flag_info *html_flag = html_flags_info+i;
-		print_option(  0, html_flag->option_name, html_flag->description);
+	for(i = 0; i < count_of(html_flags_info); i++) {
+		struct html_flag_info* html_flag = html_flags_info + i;
+		print_option(0, html_flag->option_name, html_flag->description);
 	}
 	printf("\n");
 
 	/* ending */
 	printf("Flags and extensions can be negated by prepending 'no' to them, as in '--no-tables', '--no-span' or '--no-escape'. "
-	       "Options are processed in order, so in case of contradictory options the last specified stands.\n\n");
+		   "Options are processed in order, so in case of contradictory options the last specified stands.\n\n");
 
 	printf("When FILE is '-', read standard input. If no FILE was given, read standard input. Use '--' to signal end of option parsing. "
-	       "Exit status is 0 if no errors occurred, 1 with option parsing errors, 4 with memory allocation errors or 5 with I/O errors.\n\n");
+		   "Exit status is 0 if no errors occured, 1 with option parsing errors, 4 with memory allocation errors or 5 with I/O errors.\n\n");
 }
 
 
-/* OPTION PARSING */
+/* creating the renderer */
+hoedown_renderer* renderer;
+void (*renderer_free)(hoedown_renderer*);
 
-struct option_data {
-	char *basename;
-	int done;
-
-	/* time reporting */
-	int show_time;
-
-	/* I/O */
-	size_t iunit;
-	size_t ounit;
-	const char *filename;
-
-	/* renderer */
-	enum renderer_type renderer;
-	int toc_level;
-	hoedown_html_flags html_flags;
-
-	/* document */
-	uint8_t attr_activation;
-
-	/* parsing */
-	hoedown_extensions extensions;
-	size_t max_nesting;
-
-	/* link_attributes */
-	int link_attributes;
-};
-
-int
-parse_short_option(char opt, char *next, void *opaque)
-{
-	struct option_data *data = opaque;
-	long int num;
-	int isNum = next ? parseint(next, &num) : 0;
-
-	if (opt == 'h') {
-		print_help(data->basename);
-		data->done = 1;
-		return 0;
-	}
-
-	if (opt == 'v') {
-		print_version();
-		data->done = 1;
-		return 0;
-	}
-
-	if (opt == 'T') {
-		data->show_time = 1;
-		return 1;
-	}
-
-	/* options requiring value */
-	/* FIXME: add validation */
-
-	if (opt == 'n' && isNum) {
-		data->max_nesting = num;
-		return 2;
-	}
-
-	if (opt == 't' && isNum) {
-		data->toc_level = num;
-		return 2;
-	}
-
-	if (opt == 'i' && isNum) {
-		data->iunit = num;
-		return 2;
-	}
-
-	if (opt == 'o' && isNum) {
-		data->ounit = num;
-		return 2;
-	}
-
-	if (opt == 'a' && !isNum && next) {
-		data->attr_activation = next[0];
-		return 2;
-	}
-
-	fprintf(stderr, "Wrong option '-%c' found.\n", opt);
-	return 0;
-}
-
-int
-parse_category_option(char *opt, struct option_data *data)
-{
-	size_t i;
-	const char *name = strprefix(opt, category_prefix);
-	if (!name) return 0;
-
-	for (i = 0; i < count_of(categories_info); i++) {
-		struct extension_category_info *category = &categories_info[i];
-		if (strcmp(name, category->option_name)==0) {
-			data->extensions |= category->flags;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-int
-parse_flag_option(char *opt, struct option_data *data)
-{
-	size_t i;
-
-	for (i = 0; i < count_of(extensions_info); i++) {
-		struct extension_info *extension = &extensions_info[i];
-		if (strcmp(opt, extension->option_name)==0) {
-			data->extensions |= extension->flag;
-			return 1;
-		}
-	}
-
-	for (i = 0; i < count_of(html_flags_info); i++) {
-		struct html_flag_info *html_flag = &html_flags_info[i];
-		if (strcmp(opt, html_flag->option_name)==0) {
-			data->html_flags |= html_flag->flag;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-int
-parse_negative_option(char *opt, struct option_data *data)
-{
-	size_t i;
-	const char *name = strprefix(opt, negative_prefix);
-	if (!name) return 0;
-
-	for (i = 0; i < count_of(categories_info); i++) {
-		struct extension_category_info *category = &categories_info[i];
-		if (strcmp(name, category->option_name)==0) {
-			data->extensions &= ~(category->flags);
-			return 1;
-		}
-	}
-
-	for (i = 0; i < count_of(extensions_info); i++) {
-		struct extension_info *extension = &extensions_info[i];
-		if (strcmp(name, extension->option_name)==0) {
-			data->extensions &= ~(extension->flag);
-			return 1;
-		}
-	}
-
-	for (i = 0; i < count_of(html_flags_info); i++) {
-		struct html_flag_info *html_flag = &html_flags_info[i];
-		if (strcmp(name, html_flag->option_name)==0) {
-			data->html_flags &= ~(html_flag->flag);
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-int
-parse_long_option(char *opt, char *next, void *opaque)
-{
-	struct option_data *data = opaque;
-	long int num;
-	int isNum = next ? parseint(next, &num) : 0;
-
-	if (strcmp(opt, "help")==0) {
-		print_help(data->basename);
-		data->done = 1;
-		return 0;
-	}
-
-	if (strcmp(opt, "version")==0) {
-		print_version();
-		data->done = 1;
-		return 0;
-	}
-
-	if (strcmp(opt, "time")==0) {
-		data->show_time = 1;
-		return 1;
-	}
-
-	/* FIXME: validation */
-
-	if (strcmp(opt, "max-nesting")==0 && isNum) {
-		data->max_nesting = num;
-		return 2;
-	}
-	if (strcmp(opt, "toc-level")==0 && isNum) {
-		data->toc_level = num;
-		return 2;
-	}
-	if (strcmp(opt, "attr-activation")==0 && !isNum && next) {
-		data->attr_activation = next[0];
-		return 2;
-	}
-	if (strcmp(opt, "input-unit")==0 && isNum) {
-		data->iunit = num;
-		return 2;
-	}
-	if (strcmp(opt, "output-unit")==0 && isNum) {
-		data->ounit = num;
-		return 2;
-	}
-
-	if (strcmp(opt, "html")==0) {
-		data->renderer = RENDERER_HTML;
-		return 1;
-	}
-	if (strcmp(opt, "html-toc")==0) {
-		data->renderer = RENDERER_HTML_TOC;
-		return 1;
-	}
-	/* this is intentionally omitted from usage, since it's for testing only */
-	if (strcmp(opt, "context-test")==0) {
-		data->renderer = RENDERER_CONTEXT_TEST;
-		return 1;
-	}
-
-	if (strcmp(opt, "link-attributes-test")==0) {
-		data->link_attributes = 1;
-		return 1;
-	}
-
-	if (parse_category_option(opt, data) || parse_flag_option(opt, data) || parse_negative_option(opt, data))
-		return 1;
-
-	fprintf(stderr, "Wrong option '--%s' found.\n", opt);
-	return 0;
-}
-
-int
-parse_argument(int argn, char *arg, int is_forced, void *opaque)
-{
-	struct option_data *data = opaque;
-
-	if (argn == 0) {
-		/* Input file */
-		if (strcmp(arg, "-")!=0 || is_forced) data->filename = arg;
-		return 1;
-	}
-
-	fprintf(stderr, "Too many arguments.\n");
-	return 0;
-}
-
-static void
-rndr_test_link_attributes(hoedown_buffer *ob, const hoedown_buffer *url, const hoedown_renderer_data *data)
-{
-	hoedown_buffer_puts(ob, " data-url=\"");
-	hoedown_buffer_put(ob, url->data, url->size);
-	hoedown_buffer_putc(ob, '\"');
-}
 
 /* MAIN LOGIC */
 
 int
-main(int argc, char **argv)
-{
-	struct option_data data;
-	clock_t t1, t2;
-	FILE *file = stdin;
-	hoedown_buffer *ib, *ob, *meta;
-	hoedown_renderer *renderer = NULL;
-	void (*renderer_free)(hoedown_renderer *) = NULL;
-	hoedown_document *document;
+main(int argc, char** argv) {
+	int show_time = 0;
+	//struct timespec start, end;
 
-	/* Parse options */
-	data.basename = argv[0];
-	data.done = 0;
-	data.show_time = 0;
-	data.iunit = DEF_IUNIT;
-	data.ounit = DEF_OUNIT;
-	data.filename = NULL;
-	data.renderer = RENDERER_HTML;
-	data.toc_level = 0;
-	data.attr_activation = 0;
-	data.html_flags = 0;
-	data.extensions = 0;
-	data.max_nesting = DEF_MAX_NESTING;
-	data.link_attributes = 0;
+	/* buffers */
+	hoedown_buffer* ib, * ob;
+	size_t iunit = DEF_IUNIT, ounit = DEF_OUNIT;
 
-	argc = parse_options(argc, argv, parse_short_option, parse_long_option, parse_argument, &data);
-	if (data.done) return 0;
-	if (!argc) return 1;
+	/* files */
+	FILE* in = NULL;
 
-	/* Add extesion flags, case html_flags */
-	if (data.html_flags & HOEDOWN_HTML_FENCED_CODE_SCRIPT) {
-		data.extensions |= HOEDOWN_EXT_FENCED_CODE;
-	}
+	/* renderer */
+	int toc_level = 0;
+	int renderer_type = RENDERER_HTML;
 
-	/* Open input file, if needed */
-	if (data.filename) {
-		file = fopen(data.filename, "r");
-		if (!file) {
-			fprintf(stderr, "Unable to open input file \"%s\": %s\n", data.filename, strerror(errno));
-			return 5;
+	/* document */
+	hoedown_document* document;
+	unsigned int extensions = 0;
+	size_t max_nesting = DEF_MAX_NESTING;
+
+	/* HTML renderer-specific */
+	unsigned int html_flags = 0;
+
+
+	/* option parsing */
+	int just_args = 0;
+	int i, j;
+	for(i = 1; i < argc; i++) {
+		char* arg = argv[i];
+		if(!arg[0]) continue;
+
+		if(just_args || arg[0] != '-') {
+			/* regular argument */
+			in = fopen(arg, "r");
+			if(!in) {
+				fprintf(stderr, "Unable to open input file \"%s\": %s\n", arg, strerror(errno));
+				return 5;
+			}
+			continue;
 		}
-	}
 
-	/* Read everything */
-	ib = hoedown_buffer_new(data.iunit);
-
-	if (hoedown_buffer_putf(ib, file)) {
-		fprintf(stderr, "I/O errors found while reading input.\n");
-		return 5;
-	}
-
-	if (file != stdin) fclose(file);
-
-	/* Create the renderer */
-	switch (data.renderer) {
-		case RENDERER_HTML:
-			renderer = hoedown_html_renderer_new(data.html_flags, data.toc_level);
-			renderer_free = hoedown_html_renderer_free;
-			break;
-		case RENDERER_HTML_TOC:
-			renderer = hoedown_html_toc_renderer_new(data.toc_level);
-			renderer_free = hoedown_html_renderer_free;
-			break;
-		case RENDERER_CONTEXT_TEST:
-			renderer = hoedown_context_test_renderer_new(NULL);
-			renderer_free = hoedown_context_test_renderer_free;
-			break;
-	};
-
-	/* Perform Markdown rendering */
-	ob = hoedown_buffer_new(data.ounit);
-	meta = hoedown_buffer_new(data.ounit);
-	document = hoedown_document_new(renderer, data.extensions, data.max_nesting, data.attr_activation, NULL, meta);
-
-  /* state */
-	if (data.renderer == RENDERER_CONTEXT_TEST) {
-		hoedown_context_test_renderer_state *state;
-		state = (hoedown_context_test_renderer_state *)renderer->opaque;
-		state->doc = document;
-	} else {
-		hoedown_html_renderer_state *state;
-		state = (hoedown_html_renderer_state *)renderer->opaque;
-		/* toc_data */
-		if (data.toc_level > 0) {
-			state->toc_data.current_level = 0;
-			state->toc_data.level_offset = 0;
-			state->toc_data.nesting_level = data.toc_level;
-			state->toc_data.header = "<div class=\"toc\">";
-			state->toc_data.footer = "</div>";
+		if(!arg[1]) {
+			/* arg is "-" */
+			in = stdin;
+			continue;
 		}
-		/* link_attributes */
-		if (data.link_attributes) {
-			state->link_attributes = rndr_test_link_attributes;
+
+		if(arg[1] != '-') {
+			/* parse short options */
+			char opt;
+			const char* val;
+			for(j = 1; (opt = arg[j]); j++) {
+				if(opt == 'h') {
+					print_help(argv[0]);
+					return 1;
+				}
+
+				if(opt == 'v') {
+					print_version();
+					return 1;
+				}
+
+				if(opt == 'T') {
+					show_time = 1;
+					continue;
+				}
+
+				/* options requiring value */
+				if(arg[++j]) val = arg + j;
+				else if(argv[++i]) val = argv[i];
+				else {
+					fprintf(stderr, "Wrong option '-%c' found.\n", opt);
+					return 1;
+				}
+
+				long int num;
+				int isNum = parseint(val, &num);
+
+				if(opt == 'n' && isNum) {
+					max_nesting = num;
+					break;
+				}
+
+				if(opt == 't' && isNum) {
+					toc_level = num;
+					break;
+				}
+
+				if(opt == 'i' && isNum) {
+					iunit = num;
+					break;
+				}
+
+				if(opt == 'o' && isNum) {
+					ounit = num;
+					break;
+				}
+
+				fprintf(stderr, "Wrong option '-%c' found.\n", opt);
+				return 1;
+			}
+			continue;
 		}
-	}
 
-	t1 = clock();
-	hoedown_document_render(document, ob, ib->data, ib->size);
-	t2 = clock();
+		if(!arg[2]) {
+			/* arg is "--" */
+			just_args = 1;
+			continue;
+		}
 
-	/* Cleanup */
-	hoedown_buffer_free(ib);
-	hoedown_document_free(document);
-	renderer_free(renderer);
+		/* parse long option */
+		char opt[100];
+		strncpy(opt, arg + 2, 100);
+		opt[99] = 0;
 
-	/* Write the result to stdout */
-	(void)fwrite(ob->data, 1, ob->size, stdout);
-	hoedown_buffer_free(ob);
+		char* val = strchr(opt, '=');
 
-	if (ferror(stdout)) {
-		hoedown_buffer_free(meta);
-		fprintf(stderr, "I/O errors found while writing output.\n");
-		return 5;
-	}
+		long int num = 0;
+		int isNum = 0;
 
-	/* Meta block */
-	if (meta->size > 0) {
-		fprintf(stdout, "-- Meta Block --\n");
-		(void)fwrite(meta->data, 1, meta->size, stdout);
-	}
-	hoedown_buffer_free(meta);
-	if (ferror(stdout)) {
-		fprintf(stderr, "I/O errors found while writing output.\n");
-		return 5;
-	}
+		if(val) {
+			*val = 0;
+			val++;
 
-	/* Show rendering time */
-	if (data.show_time) {
-		double elapsed;
+			if(*val)
+				isNum = parseint(val, &num);
+		}
 
-		if (t1 == ((clock_t) -1) || t2 == ((clock_t) -1)) {
-			fprintf(stderr, "Failed to get the time.\n");
+		int opt_parsed = 0;
+
+		if(strcmp(opt, "help") == 0) {
+			print_help(argv[0]);
 			return 1;
 		}
 
-		elapsed = (double)(t2 - t1) / CLOCKS_PER_SEC;
-		if (elapsed < 1)
-			fprintf(stderr, "Time spent on rendering: %7.2f ms.\n", elapsed*1e3);
-		else
-			fprintf(stderr, "Time spent on rendering: %6.3f s.\n", elapsed);
+		if(strcmp(opt, "version") == 0) {
+			print_version();
+			return 1;
+		}
+
+		if(strcmp(opt, "max-nesting") == 0 && isNum) {
+			opt_parsed = 1;
+			max_nesting = num;
+		}
+		if(strcmp(opt, "toc-level") == 0 && isNum) {
+			opt_parsed = 1;
+			toc_level = num;
+		}
+		if(strcmp(opt, "input-unit") == 0 && isNum) {
+			opt_parsed = 1;
+			iunit = num;
+		}
+		if(strcmp(opt, "output-unit") == 0 && isNum) {
+			opt_parsed = 1;
+			ounit = num;
+		}
+
+		if(strcmp(opt, "html") == 0) {
+			opt_parsed = 1;
+			renderer_type = RENDERER_HTML;
+		}
+		if(strcmp(opt, "html-toc") == 0) {
+			opt_parsed = 1;
+			renderer_type = RENDERER_HTML_TOC;
+		}
+		if(strcmp(opt, "null") == 0) {
+			opt_parsed = 1;
+			renderer_type = RENDERER_NULL;
+		}
+
+		const char* name;
+		size_t i;
+
+		/* extension categories */
+		if((name = strprefix(opt, category_prefix))) {
+			for(i = 0; i < count_of(categories_info); i++) {
+				struct extension_category_info* category = categories_info + i;
+				if(strcmp(name, category->option_name) == 0) {
+					opt_parsed = 1;
+					extensions |= category->flags;
+					break;
+				}
+			}
+		}
+
+		/* extensions */
+		for(i = 0; i < count_of(extensions_info); i++) {
+			struct extension_info* extension = extensions_info + i;
+			if(strcmp(opt, extension->option_name) == 0) {
+				opt_parsed = 1;
+				extensions |= extension->flag;
+				break;
+			}
+		}
+
+		/* html flags */
+		for(i = 0; i < count_of(html_flags_info); i++) {
+			struct html_flag_info* html_flag = html_flags_info + i;
+			if(strcmp(opt, html_flag->option_name) == 0) {
+				opt_parsed = 1;
+				html_flags |= html_flag->flag;
+				break;
+			}
+		}
+
+		/* negations */
+		if((name = strprefix(opt, negative_prefix))) {
+			for(i = 0; i < count_of(categories_info); i++) {
+				struct extension_category_info* category = categories_info + i;
+				if(strcmp(name, category->option_name) == 0) {
+					opt_parsed = 1;
+					extensions &= ~(category->flags);
+					break;
+				}
+			}
+			for(i = 0; i < count_of(extensions_info); i++) {
+				struct extension_info* extension = extensions_info + i;
+				if(strcmp(name, extension->option_name) == 0) {
+					opt_parsed = 1;
+					extensions &= ~(extension->flag);
+					break;
+				}
+			}
+			for(i = 0; i < count_of(html_flags_info); i++) {
+				struct html_flag_info* html_flag = html_flags_info + i;
+				if(strcmp(name, html_flag->option_name) == 0) {
+					opt_parsed = 1;
+					html_flags &= ~(html_flag->flag);
+					break;
+				}
+			}
+		}
+
+		if(strcmp(opt, "time") == 0) {
+			opt_parsed = 1;
+			show_time = 1;
+		}
+
+		if(!opt_parsed) {
+			fprintf(stderr, "Wrong option '%s' found.\n", arg);
+			return 1;
+		}
+	}
+
+	if(!in)
+		in = stdin;
+
+
+	/* reading everything */
+	ib = hoedown_buffer_new(iunit);
+	if(!ib) {
+		fprintf(stderr, "Couldn't allocate input buffer.\n");
+		return 4;
+	}
+
+	while(!feof(in)) {
+		if(ferror(in)) {
+			fprintf(stderr, "I/O errors found while reading input.\n");
+			return 5;
+		}
+		if(hoedown_buffer_grow(ib, ib->size + iunit) != HOEDOWN_BUF_OK) {
+			fprintf(stderr, "Couldn't grow input buffer.\n");
+			return 4;
+		}
+		ib->size += fread(ib->data + ib->size, 1, iunit, in);
+	}
+
+	if(in != stdin)
+		fclose(in);
+
+	switch(renderer_type) {
+		case RENDERER_HTML:
+			renderer = hoedown_html_renderer_new(html_flags, toc_level);
+			renderer_free = hoedown_html_renderer_free;
+			break;
+		case RENDERER_HTML_TOC:
+			renderer = hoedown_html_toc_renderer_new(toc_level);
+			renderer_free = hoedown_html_renderer_free;
+			break;
+		case RENDERER_NULL:
+			renderer = null_renderer_new();
+			renderer_free = null_renderer_free;
+			break;
+		default:
+			renderer = NULL;
+	};
+
+	if(!renderer) {
+		fprintf(stderr, "Couldn't allocate renderer.\n");
+		return 4;
+	}
+
+	/* toc_data */
+	if(html_flags & HOEDOWN_HTML_TOC) {
+		hoedown_html_renderer_state* state;
+		state = (hoedown_html_renderer_state*)renderer->opaque;
+		state->toc_data.current_level = 0;
+		state->toc_data.level_offset = 0;
+		state->toc_data.nesting_level = toc_level;
+		state->toc_data.unescape = 1;
+		state->toc_data.header = "<div class=\"toc\">";
+		state->toc_data.footer = "</div>";
+	}
+
+	/* performing markdown rendering */
+	ob = hoedown_buffer_new(ounit);
+	if(!ob) {
+		fprintf(stderr, "Couldn't allocate output buffer.\n");
+		return 4;
+	}
+
+	document = hoedown_document_new(renderer, extensions, max_nesting);
+	if(!document) {
+		fprintf(stderr, "Couldn't allocate document parser.\n");
+		return 4;
+	}
+
+	//clock_gettime(CLOCK_MONOTONIC, &start);
+	hoedown_document_render(document, ob, ib->data, ib->size);
+	//clock_gettime(CLOCK_MONOTONIC, &end);
+
+
+	/* writing the result to stdout */
+	(void)fwrite(ob->data, 1, ob->size, stdout);
+
+
+	/* showing rendering time */
+	if(show_time) {
+		//TODO: enable this
+		//long long elapsed = (  end.tv_sec*1000000000 +   end.tv_nsec)
+		//                  - (start.tv_sec*1000000000 + start.tv_nsec);
+		//if (elapsed < 1000000000)
+		//	fprintf(stderr, "Time spent on rendering: %.2f ms.\n", ((double)elapsed)/1000000);
+		//else
+		//	fprintf(stderr, "Time spent on rendering: %.3f s.\n", ((double)elapsed)/1000000000);
+	}
+
+
+	/* cleanup */
+	hoedown_buffer_free(ib);
+	hoedown_buffer_free(ob);
+
+	hoedown_document_free(document);
+	renderer_free(renderer);
+
+	if(ferror(stdout)) {
+		fprintf(stderr, "I/O errors found while writing output.\n");
+		return 5;
 	}
 
 	return 0;

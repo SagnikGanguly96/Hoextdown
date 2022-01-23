@@ -1,199 +1,112 @@
-#include <buffer.h>
+#include "buffer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
-void *
-hoedown_malloc(size_t size)
-{
-	void *ret = malloc(size);
-
-	if (!ret) {
-		fprintf(stderr, "Allocation failed.\n");
-		abort();
-	}
-
-	return ret;
-}
-
-void *
-hoedown_calloc(size_t nmemb, size_t size)
-{
-	void *ret = calloc(nmemb, size);
-
-	if (!ret) {
-		fprintf(stderr, "Allocation failed.\n");
-		abort();
-	}
-
-	return ret;
-}
-
-void *
-hoedown_realloc(void *ptr, size_t size)
-{
-	void *ret = realloc(ptr, size);
-
-	if (!ret) {
-		fprintf(stderr, "Allocation failed.\n");
-		abort();
-	}
-
-	return ret;
-}
-
-void
-hoedown_buffer_init(
-	hoedown_buffer *buf,
-	size_t unit,
-	hoedown_realloc_callback data_realloc,
-	hoedown_free_callback data_free,
-	hoedown_free_callback buffer_free)
-{
-	assert(buf);
-
-	buf->data = NULL;
-	buf->size = buf->asize = 0;
-	buf->unit = unit;
-	buf->data_realloc = data_realloc;
-	buf->data_free = data_free;
-	buf->buffer_free = buffer_free;
-}
-
-void
-hoedown_buffer_uninit(hoedown_buffer *buf)
-{
-	assert(buf && buf->unit);
-	buf->data_free(buf->data);
-}
-
+/* hoedown_buffer_new: allocation of a new buffer */
 hoedown_buffer *
 hoedown_buffer_new(size_t unit)
 {
-	hoedown_buffer *ret = hoedown_malloc(sizeof (hoedown_buffer));
-	hoedown_buffer_init(ret, unit, hoedown_realloc, free, free);
+	hoedown_buffer *ret;
+	ret = malloc(sizeof (hoedown_buffer));
+
+	if (ret) {
+		ret->data = 0;
+		ret->size = ret->asize = 0;
+		ret->unit = unit;
+	}
 	return ret;
 }
 
+/* hoedown_buffer_free: decrease the reference count and free the buffer if needed */
 void
 hoedown_buffer_free(hoedown_buffer *buf)
 {
-	if (!buf) return;
-	assert(buf && buf->unit);
+	if (!buf)
+		return;
 
-	buf->data_free(buf->data);
-
-	if (buf->buffer_free)
-		buf->buffer_free(buf);
+	free(buf->data);
+	free(buf);
 }
 
+/* hoedown_buffer_reset: frees internal data of the buffer */
 void
 hoedown_buffer_reset(hoedown_buffer *buf)
 {
-	assert(buf && buf->unit);
+	if (!buf)
+		return;
 
-	buf->data_free(buf->data);
+	free(buf->data);
 	buf->data = NULL;
 	buf->size = buf->asize = 0;
 }
 
-void
+/* hoedown_buffer_grow: increasing the allocated size to the given value */
+int
 hoedown_buffer_grow(hoedown_buffer *buf, size_t neosz)
 {
 	size_t neoasz;
+	void *neodata;
+
 	assert(buf && buf->unit);
 
 	if (buf->asize >= neosz)
-		return;
+		return HOEDOWN_BUF_OK;
 
 	neoasz = buf->asize + buf->unit;
 	while (neoasz < neosz)
 		neoasz += buf->unit;
 
-	buf->data = buf->data_realloc(buf->data, neoasz);
+	neodata = realloc(buf->data, neoasz);
+	if (!neodata)
+		return HOEDOWN_BUF_ENOMEM;
+
+	buf->data = neodata;
 	buf->asize = neoasz;
+	return HOEDOWN_BUF_OK;
 }
 
+/* hoedown_buffer_put: appends raw data to a buffer */
 void
-hoedown_buffer_put(hoedown_buffer *buf, const uint8_t *data, size_t size)
+hoedown_buffer_put(hoedown_buffer *buf, const void *data, size_t len)
 {
 	assert(buf && buf->unit);
 
-	if (buf->size + size > buf->asize)
-		hoedown_buffer_grow(buf, buf->size + size);
+	if (buf->size + len > buf->asize && hoedown_buffer_grow(buf, buf->size + len) < 0)
+		return;
 
-	memcpy(buf->data + buf->size, data, size);
-	buf->size += size;
+	memcpy(buf->data + buf->size, data, len);
+	buf->size += len;
 }
 
+/* hoedown_buffer_puts: appends a NUL-terminated string to a buffer */
 void
 hoedown_buffer_puts(hoedown_buffer *buf, const char *str)
 {
-	hoedown_buffer_put(buf, (const uint8_t *)str, strlen(str));
+	hoedown_buffer_put(buf, str, strlen(str));
 }
 
+
+/* hoedown_buffer_putc: appends a single uint8_t to a buffer */
 void
 hoedown_buffer_putc(hoedown_buffer *buf, uint8_t c)
 {
 	assert(buf && buf->unit);
 
-	if (buf->size >= buf->asize)
-		hoedown_buffer_grow(buf, buf->size + 1);
+	if (buf->size + 1 > buf->asize && hoedown_buffer_grow(buf, buf->size + 1) < 0)
+		return;
 
 	buf->data[buf->size] = c;
 	buf->size += 1;
 }
 
 int
-hoedown_buffer_putf(hoedown_buffer *buf, FILE *file)
-{
-	assert(buf && buf->unit);
-
-	while (!(feof(file) || ferror(file))) {
-		hoedown_buffer_grow(buf, buf->size + buf->unit);
-		buf->size += fread(buf->data + buf->size, 1, buf->unit, file);
-	}
-
-	return ferror(file);
-}
-
-void
-hoedown_buffer_set(hoedown_buffer *buf, const uint8_t *data, size_t size)
-{
-	assert(buf && buf->unit);
-
-	if (size > buf->asize)
-		hoedown_buffer_grow(buf, size);
-
-	memcpy(buf->data, data, size);
-	buf->size = size;
-}
-
-void
-hoedown_buffer_sets(hoedown_buffer *buf, const char *str)
-{
-	hoedown_buffer_set(buf, (const uint8_t *)str, strlen(str));
-}
-
-int
-hoedown_buffer_eq(const hoedown_buffer *buf, const uint8_t *data, size_t size)
-{
-	if (buf->size != size) return 0;
-	return memcmp(buf->data, data, size) == 0;
-}
-
-int
-hoedown_buffer_eqs(const hoedown_buffer *buf, const char *str)
-{
-	return hoedown_buffer_eq(buf, (const uint8_t *)str, strlen(str));
-}
-
-int
 hoedown_buffer_prefix(const hoedown_buffer *buf, const char *prefix)
 {
 	size_t i;
+	assert(buf && buf->unit);
 
 	for (i = 0; i < buf->size; ++i) {
 		if (prefix[i] == 0)
@@ -206,20 +119,22 @@ hoedown_buffer_prefix(const hoedown_buffer *buf, const char *prefix)
 	return 0;
 }
 
+/* hoedown_buffer_slurp: removes a given number of bytes from the head of the array */
 void
-hoedown_buffer_slurp(hoedown_buffer *buf, size_t size)
+hoedown_buffer_slurp(hoedown_buffer *buf, size_t len)
 {
 	assert(buf && buf->unit);
 
-	if (size >= buf->size) {
+	if (len >= buf->size) {
 		buf->size = 0;
 		return;
 	}
 
-	buf->size -= size;
-	memmove(buf->data, buf->data + size, buf->size);
+	buf->size -= len;
+	memmove(buf->data, buf->data + len, buf->size);
 }
 
+/* hoedown_buffer_cstr: NULL-termination of the string array */
 const char *
 hoedown_buffer_cstr(hoedown_buffer *buf)
 {
@@ -228,12 +143,15 @@ hoedown_buffer_cstr(hoedown_buffer *buf)
 	if (buf->size < buf->asize && buf->data[buf->size] == 0)
 		return (char *)buf->data;
 
-	hoedown_buffer_grow(buf, buf->size + 1);
-	buf->data[buf->size] = 0;
+	if (buf->size + 1 <= buf->asize || hoedown_buffer_grow(buf, buf->size + 1) == 0) {
+		buf->data[buf->size] = 0;
+		return (char *)buf->data;
+	}
 
-	return (char *)buf->data;
+	return NULL;
 }
 
+/* hoedown_buffer_printf: formatted printing to a buffer */
 void
 hoedown_buffer_printf(hoedown_buffer *buf, const char *fmt, ...)
 {
@@ -242,9 +160,9 @@ hoedown_buffer_printf(hoedown_buffer *buf, const char *fmt, ...)
 
 	assert(buf && buf->unit);
 
-	if (buf->size >= buf->asize)
-		hoedown_buffer_grow(buf, buf->size + 1);
-
+	if (buf->size >= buf->asize && hoedown_buffer_grow(buf, buf->size + 1) < 0)
+		return;
+	
 	va_start(ap, fmt);
 	n = vsnprintf((char *)buf->data + buf->size, buf->asize - buf->size, fmt, ap);
 	va_end(ap);
@@ -260,7 +178,8 @@ hoedown_buffer_printf(hoedown_buffer *buf, const char *fmt, ...)
 	}
 
 	if ((size_t)n >= buf->asize - buf->size) {
-		hoedown_buffer_grow(buf, buf->size + n + 1);
+		if (hoedown_buffer_grow(buf, buf->size + n + 1) < 0)
+			return;
 
 		va_start(ap, fmt);
 		n = vsnprintf((char *)buf->data + buf->size, buf->asize - buf->size, fmt, ap);
@@ -271,38 +190,4 @@ hoedown_buffer_printf(hoedown_buffer *buf, const char *fmt, ...)
 		return;
 
 	buf->size += n;
-}
-
-void hoedown_buffer_put_utf8(hoedown_buffer *buf, unsigned int c) {
-	unsigned char unichar[4];
-
-	assert(buf && buf->unit);
-
-	if (c < 0x80) {
-		hoedown_buffer_putc(buf, c);
-	}
-	else if (c < 0x800) {
-		unichar[0] = 192 + (c / 64);
-		unichar[1] = 128 + (c % 64);
-		hoedown_buffer_put(buf, unichar, 2);
-	}
-	else if (c - 0xd800u < 0x800) {
-		HOEDOWN_BUFPUTSL(buf, "\xef\xbf\xbd");
-	}
-	else if (c < 0x10000) {
-		unichar[0] = 224 + (c / 4096);
-		unichar[1] = 128 + (c / 64) % 64;
-		unichar[2] = 128 + (c % 64);
-		hoedown_buffer_put(buf, unichar, 3);
-	}
-	else if (c < 0x110000) {
-		unichar[0] = 240 + (c / 262144);
-		unichar[1] = 128 + (c / 4096) % 64;
-		unichar[2] = 128 + (c / 64) % 64;
-		unichar[3] = 128 + (c % 64);
-		hoedown_buffer_put(buf, unichar, 4);
-	}
-	else {
-		HOEDOWN_BUFPUTSL(buf, "\xef\xbf\xbd");
-	}
 }

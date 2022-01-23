@@ -9,17 +9,8 @@
 extern "C" {
 #endif
 
-
-/*************
- * FUNCTIONS *
- *************/
-
-/* hoedown_escape_href: escape (part of) a URL inside HTML */
-void hoedown_escape_href(hoedown_buffer *ob, const uint8_t *data, size_t size);
-
-/* hoedown_escape_html: escape HTML */
-void hoedown_escape_html(hoedown_buffer *ob, const uint8_t *data, size_t size, int secure);
-
+extern void hoedown_escape_html(hoedown_buffer *ob, const uint8_t *src, size_t size, int secure);
+extern void hoedown_escape_href(hoedown_buffer *ob, const uint8_t *src, size_t size);
 
 #ifdef __cplusplus
 }
